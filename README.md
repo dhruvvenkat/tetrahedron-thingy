@@ -15,7 +15,9 @@ make
 ```
 
 Use `Ctrl-C` to quit. The default scene is a centered 60 FPS shaded hedron.
-Press `Up Arrow` to split one triangular face. It starts as an 8-face octahedron and gets closer to a sphere as you add facets.
+It now starts at 96 faces for a smoother default shape; use `--faces 8` to start from the original octahedron.
+Press `Up Arrow` to split one triangular face, making the shape progressively closer to a sphere.
+Press `Down Arrow` to remove one face and simplify the shape again.
 The faces are filled with left-side lighting so the facets are easier to distinguish.
 
 You can also run one scene directly:
@@ -34,5 +36,6 @@ Useful options:
 ```sh
 ./anim --width 120 --height 40 --fps 60
 ./anim --scene hedron --fps 120
+./anim --scene hedron --faces 240 --width 180 --height 60
 ./anim --scene waves --frames 300
 ```

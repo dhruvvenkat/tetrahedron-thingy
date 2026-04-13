@@ -19,6 +19,8 @@ namespace {
 
 constexpr double pi = 3.14159265358979323846;
 constexpr int color_reset = 0;
+constexpr int min_hedron_faces = 8;
+constexpr int max_hedron_faces = 1200;
 
 volatile std::sig_atomic_t keep_running = 1;
 
@@ -55,6 +57,7 @@ struct Options {
     int height = 0;
     int fps = 60;
     int frames = 0;
+    int initial_faces = 96;
     std::string scene = "hedron";
 };
 
@@ -258,6 +261,7 @@ struct MeshFace {
 
 struct InputEvents {
     int up_presses = 0;
+    int down_presses = 0;
     bool quit = false;
 };
 
@@ -377,8 +381,12 @@ InputEvents read_input_events() {
             if (pending.size() < 3) {
                 break;
             }
-            if ((pending[1] == '[' || pending[1] == 'O') && pending[2] == 'A') {
-                ++events.up_presses;
+            if ((pending[1] == '[' || pending[1] == 'O') && (pending[2] == 'A' || pending[2] == 'B')) {
+                if (pending[2] == 'A') {
+                    ++events.up_presses;
+                } else {
+                    ++events.down_presses;
+                }
                 pending.erase(0, 3);
             } else {
                 pending.erase(0, 1);
@@ -408,6 +416,14 @@ public:
         for (int i = 0; i < count && static_cast<int>(hedron_faces_.size()) < max_hedron_faces; ++i) {
             split_largest_hedron_face();
         }
+    }
+
+    void set_hedron_faces(int target) {
+        target = std::clamp(target, min_hedron_faces, max_hedron_faces);
+        if (target < hedron_face_count()) {
+            reset_hedron();
+        }
+        add_hedron_faces(std::max(0, target - hedron_face_count()));
     }
 
     int hedron_face_count() const {
@@ -508,7 +524,7 @@ public:
         }
 
         const std::string status =
-            "hedron faces: " + std::to_string(hedron_face_count()) + "  light: left  Up: split +1 face  q/Ctrl-C: quit";
+            "hedron faces: " + std::to_string(hedron_face_count()) + "  light: left  Up/Down: +/-1 face  q/Ctrl-C: quit";
         canvas.text(2, canvas.height() - 1, status.substr(0, static_cast<std::size_t>(std::max(0, canvas.width() - 4))), 37);
     }
 
@@ -687,7 +703,6 @@ private:
         drop.length = 4 + static_cast<int>(unit_dist_(rng_) * 9.0);
     }
 
-    static constexpr int max_hedron_faces = 260;
     std::vector<Point3> hedron_vertices_;
     std::vector<MeshFace> hedron_faces_;
     std::mt19937 rng_;
@@ -708,8 +723,8 @@ int parse_int(std::string_view value, int fallback) {
 }
 
 struct TerminalSize {
-    int width = 96;
-    int height = 32;
+    int width = 140;
+    int height = 44;
 };
 
 TerminalSize detect_terminal_size() {
@@ -756,12 +771,14 @@ Options parse_args(int argc, char** argv) {
             options.fps = parse_int(next(), options.fps);
         } else if (arg == "--frames") {
             options.frames = parse_int(next(), options.frames);
+        } else if (arg == "--faces") {
+            options.initial_faces = parse_int(next(), options.initial_faces);
         } else if (arg == "--help" || arg == "-h") {
             std::cout
                 << "Usage: ./anim [--scene hedron|cube|cycle|orbits|waves|starfield|rain]\n"
-                << "              [--width auto] [--height auto] [--fps 60] [--frames 0]\n"
+                << "              [--width auto] [--height auto] [--fps 60] [--faces 96] [--frames 0]\n"
                 << "\n"
-                << "In hedron mode, press Up Arrow to split one face toward a sphere. Press q or Ctrl-C to quit.\n"
+                << "In hedron mode, press Up Arrow to add one face and Down Arrow to remove one. Press q or Ctrl-C to quit.\n"
                 << "Set --frames 0 to loop until Ctrl-C.\n";
             std::exit(0);
         }
@@ -775,10 +792,11 @@ Options parse_args(int argc, char** argv) {
         options.height = terminal_size.height;
     }
 
-    options.width = std::clamp(options.width, 20, 220);
-    options.height = std::clamp(options.height, 10, 80);
+    options.width = std::clamp(options.width, 20, 480);
+    options.height = std::clamp(options.height, 10, 160);
     options.fps = std::clamp(options.fps, 1, 240);
     options.frames = std::max(0, options.frames);
+    options.initial_faces = std::clamp(options.initial_faces, min_hedron_faces, max_hedron_faces);
     if (options.scene.empty()) {
         options.scene = "hedron";
     }
@@ -820,6 +838,7 @@ int main(int argc, char** argv) {
     TerminalGuard terminal;
     Canvas canvas(options.width, options.height);
     AnimationState state(canvas);
+    state.set_hedron_faces(options.initial_faces);
 
     using clock = std::chrono::steady_clock;
     const auto frame_time = std::chrono::duration<double>(1.0 / options.fps);
@@ -831,7 +850,7 @@ int main(int argc, char** argv) {
         if (input.quit) {
             keep_running = 0;
         }
-        state.add_hedron_faces(input.up_presses);
+        state.set_hedron_faces(state.hedron_face_count() + input.up_presses - input.down_presses);
 
         const auto now = clock::now();
         const double dt = std::chrono::duration<double>(now - previous).count();
