@@ -14,8 +14,9 @@ make
 ./anim
 ```
 
-Use `Ctrl-C` to quit. The default scene is a centered 60 FPS rotating wireframe hedron.
+Use `Ctrl-C` to quit. The default scene is a centered 60 FPS shaded hedron.
 Press `Up Arrow` to split one triangular face. It starts as an 8-face octahedron and gets closer to a sphere as you add facets.
+The faces are filled with left-side lighting so the facets are easier to distinguish.
 
 You can also run one scene directly:
 

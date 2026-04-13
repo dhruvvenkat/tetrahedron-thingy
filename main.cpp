@@ -3,6 +3,7 @@
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
+#include <limits>
 #include <iostream>
 #include <random>
 #include <string>
@@ -57,6 +58,12 @@ struct Options {
     std::string scene = "hedron";
 };
 
+struct ProjectedPoint {
+    int x = 0;
+    int y = 0;
+    double depth = 0.0;
+};
+
 struct Cell {
     char glyph = ' ';
     int color = color_reset;
@@ -65,10 +72,14 @@ struct Cell {
 class Canvas {
 public:
     Canvas(int width, int height)
-        : width_(width), height_(height), cells_(static_cast<std::size_t>(width * height)) {}
+        : width_(width),
+          height_(height),
+          cells_(static_cast<std::size_t>(width * height)),
+          depths_(static_cast<std::size_t>(width * height), -std::numeric_limits<double>::infinity()) {}
 
     void clear(char fill = ' ') {
         std::fill(cells_.begin(), cells_.end(), Cell{fill, color_reset});
+        std::fill(depths_.begin(), depths_.end(), -std::numeric_limits<double>::infinity());
     }
 
     void plot(int x, int y, char glyph, int color) {
@@ -76,6 +87,20 @@ public:
             return;
         }
         cells_[static_cast<std::size_t>(y * width_ + x)] = Cell{glyph, color};
+    }
+
+    void plot_depth(int x, int y, double depth, char glyph, int color) {
+        if (x < 0 || y < 0 || x >= width_ || y >= height_) {
+            return;
+        }
+
+        const std::size_t index = static_cast<std::size_t>(y * width_ + x);
+        if (depth < depths_[index]) {
+            return;
+        }
+
+        depths_[index] = depth;
+        cells_[index] = Cell{glyph, color};
     }
 
     void text(int x, int y, std::string_view value, int color) {
@@ -104,6 +129,59 @@ public:
             if (e2 <= dx) {
                 err += dx;
                 y0 += sy;
+            }
+        }
+    }
+
+    void line_depth(ProjectedPoint from, ProjectedPoint to, char glyph, int color) {
+        const int dx = to.x - from.x;
+        const int dy = to.y - from.y;
+        const int steps = std::max(std::abs(dx), std::abs(dy));
+        if (steps == 0) {
+            plot_depth(from.x, from.y, from.depth, glyph, color);
+            return;
+        }
+
+        for (int i = 0; i <= steps; ++i) {
+            const double progress = static_cast<double>(i) / steps;
+            const int x = static_cast<int>(std::round(from.x + dx * progress));
+            const int y = static_cast<int>(std::round(from.y + dy * progress));
+            const double depth = from.depth + (to.depth - from.depth) * progress;
+            plot_depth(x, y, depth + 0.002, glyph, color);
+        }
+    }
+
+    void triangle(ProjectedPoint a, ProjectedPoint b, ProjectedPoint c, char glyph, int color) {
+        const int min_x = std::max(0, std::min({a.x, b.x, c.x}) - 1);
+        const int max_x = std::min(width_ - 1, std::max({a.x, b.x, c.x}) + 1);
+        const int min_y = std::max(0, std::min({a.y, b.y, c.y}) - 1);
+        const int max_y = std::min(height_ - 1, std::max({a.y, b.y, c.y}) + 1);
+        const double area = edge_value(a, b, c.x, c.y);
+
+        if (std::abs(area) < 0.001) {
+            line_depth(a, b, glyph, color);
+            line_depth(b, c, glyph, color);
+            line_depth(c, a, glyph, color);
+            return;
+        }
+
+        for (int y = min_y; y <= max_y; ++y) {
+            for (int x = min_x; x <= max_x; ++x) {
+                const double w0 = edge_value(b, c, x, y);
+                const double w1 = edge_value(c, a, x, y);
+                const double w2 = edge_value(a, b, x, y);
+                const bool inside = area > 0.0
+                    ? (w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0)
+                    : (w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0);
+                if (!inside) {
+                    continue;
+                }
+
+                const double alpha = w0 / area;
+                const double beta = w1 / area;
+                const double gamma = w2 / area;
+                const double depth = a.depth * alpha + b.depth * beta + c.depth * gamma;
+                plot_depth(x, y, depth, glyph, color);
             }
         }
     }
@@ -142,9 +220,14 @@ public:
     }
 
 private:
+    static double edge_value(ProjectedPoint a, ProjectedPoint b, double x, double y) {
+        return (x - a.x) * (b.y - a.y) - (y - a.y) * (b.x - a.x);
+    }
+
     int width_ = 0;
     int height_ = 0;
     std::vector<Cell> cells_;
+    std::vector<double> depths_;
 };
 
 struct Star {
@@ -165,12 +248,6 @@ struct Point3 {
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
-};
-
-struct ProjectedPoint {
-    int x = 0;
-    int y = 0;
-    double depth = 0.0;
 };
 
 struct MeshFace {
@@ -248,6 +325,26 @@ double squared_distance(Point3 a, Point3 b) {
     return dx * dx + dy * dy + dz * dz;
 }
 
+Point3 subtract(Point3 a, Point3 b) {
+    return {a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+Point3 add(Point3 a, Point3 b) {
+    return {a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+Point3 cross(Point3 a, Point3 b) {
+    return {
+        a.y * b.z - a.z * b.y,
+        a.z * b.x - a.x * b.z,
+        a.x * b.y - a.y * b.x,
+    };
+}
+
+double dot(Point3 a, Point3 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
 InputEvents read_input_events() {
     InputEvents events;
     static std::string pending;
@@ -319,6 +416,7 @@ public:
 
     void draw_hedron(Canvas& canvas, double t) {
         std::vector<ProjectedPoint> projected(hedron_vertices_.size());
+        std::vector<Point3> rotated_vertices(hedron_vertices_.size());
         const double cx = (canvas.width() - 1) / 2.0;
         const double cy = std::max(4.0, (canvas.height() - 2) / 2.0);
         const double scale = std::min(canvas.width() * 0.22, canvas.height() * 0.72);
@@ -326,6 +424,7 @@ public:
 
         for (std::size_t i = 0; i < hedron_vertices_.size(); ++i) {
             const Point3 rotated = rotate_point(hedron_vertices_[i], t);
+            rotated_vertices[i] = rotated;
             const double perspective = camera_distance / (camera_distance - rotated.z);
             projected[i] = {
                 static_cast<int>(std::round(cx + rotated.x * perspective * scale)),
@@ -353,13 +452,47 @@ public:
             return left_depth < right_depth;
         });
 
+        const Point3 light = normalize({-0.85, 0.18, 0.5});
+        const std::string shade_ramp = ".:-=+*#%@";
+
+        auto face_shade = [&](const MeshFace& face) {
+            const Point3 a = rotated_vertices[static_cast<std::size_t>(face.a)];
+            const Point3 b = rotated_vertices[static_cast<std::size_t>(face.b)];
+            const Point3 c = rotated_vertices[static_cast<std::size_t>(face.c)];
+            Point3 normal = normalize(cross(subtract(b, a), subtract(c, a)));
+            const Point3 centroid = normalize(add(add(a, b), c));
+            if (dot(normal, centroid) < 0.0) {
+                normal = {-normal.x, -normal.y, -normal.z};
+            }
+
+            const double lambert = std::max(0.0, dot(normal, light));
+            const double facing = std::max(0.0, normal.z) * 0.18;
+            const double intensity = std::clamp(0.14 + lambert * 0.82 + facing, 0.0, 1.0);
+            const std::size_t shade_index = static_cast<std::size_t>(
+                std::round(intensity * static_cast<double>(shade_ramp.size() - 1)));
+            const int color = intensity > 0.78 ? 97 : (intensity > 0.42 ? 37 : 90);
+            return Cell{shade_ramp[shade_index], color};
+        };
+
         auto draw_edge = [&](int from, int to) {
             const ProjectedPoint& a = projected[static_cast<std::size_t>(from)];
             const ProjectedPoint& b = projected[static_cast<std::size_t>(to)];
             const double depth = (a.depth + b.depth) * 0.5;
-            const int color = depth > 0.65 ? 97 : (depth > -0.2 ? 96 : 90);
-            canvas.line(a.x, a.y, b.x, b.y, line_glyph(a.x, a.y, b.x, b.y), color);
+            const char glyph = hedron_faces_.size() <= 24 ? line_glyph(a.x, a.y, b.x, b.y) : '.';
+            const int color = depth > 0.65 && hedron_faces_.size() <= 24 ? 37 : 90;
+            canvas.line_depth(a, b, glyph, color);
         };
+
+        for (int index : draw_order) {
+            const MeshFace& face = hedron_faces_[static_cast<std::size_t>(index)];
+            const Cell shade = face_shade(face);
+            canvas.triangle(
+                projected[static_cast<std::size_t>(face.a)],
+                projected[static_cast<std::size_t>(face.b)],
+                projected[static_cast<std::size_t>(face.c)],
+                shade.glyph,
+                shade.color);
+        }
 
         for (int index : draw_order) {
             const MeshFace& face = hedron_faces_[static_cast<std::size_t>(index)];
@@ -368,14 +501,14 @@ public:
             draw_edge(face.c, face.a);
         }
 
-        if (hedron_faces_.size() <= 120) {
+        if (hedron_faces_.size() <= 48) {
             for (const ProjectedPoint& point : projected) {
-                canvas.plot(point.x, point.y, 'o', point.depth > 0.0 ? 97 : 37);
+                canvas.plot_depth(point.x, point.y, point.depth + 0.004, 'o', point.depth > 0.0 ? 97 : 37);
             }
         }
 
         const std::string status =
-            "hedron faces: " + std::to_string(hedron_face_count()) + "  Up: split +1 face  q/Ctrl-C: quit";
+            "hedron faces: " + std::to_string(hedron_face_count()) + "  light: left  Up: split +1 face  q/Ctrl-C: quit";
         canvas.text(2, canvas.height() - 1, status.substr(0, static_cast<std::size_t>(std::max(0, canvas.width() - 4))), 37);
     }
 
