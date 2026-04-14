@@ -37,5 +37,19 @@ Useful options:
 ./anim --width 120 --height 40 --fps 60
 ./anim --scene hedron --fps 120
 ./anim --scene hedron --faces 240 --width 180 --height 60
-./anim --scene waves --frames 300
+./anim --scene waves
 ```
+
+## Standalone Animations
+
+Each non-hedron animation file also has its own `main()` and can be built directly:
+
+```sh
+make orbits waves starfield rain
+./orbits
+./waves
+./starfield
+./rain
+```
+
+All of these run until `Ctrl-C` by default.
