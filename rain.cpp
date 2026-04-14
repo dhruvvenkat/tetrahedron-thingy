@@ -24,11 +24,21 @@ double random_unit() {
     return dist(rng());
 }
 
+char random_ascii() {
+    static constexpr char glyphs[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "!@#$%^&*()-_=+[]{};:,.<>/?\\|";
+    std::uniform_int_distribution<std::size_t> dist(0, sizeof(glyphs) - 2);
+    return glyphs[dist(rng())];
+}
+
 void reset_drop(Drop& drop, const Canvas& canvas) {
     drop.x = std::floor(random_unit() * canvas.width());
     drop.y = 0.0;
-    drop.speed = 12.0 + random_unit() * 28.0;
-    drop.length = 4 + static_cast<int>(random_unit() * 9.0);
+    drop.speed = 18.0 + random_unit() * 42.0;
+    drop.length = 5 + static_cast<int>(random_unit() * 13.0);
 }
 
 std::vector<Drop>& drops_for(Canvas& canvas) {
@@ -39,7 +49,7 @@ std::vector<Drop>& drops_for(Canvas& canvas) {
     if (drops.empty() || width != canvas.width() || height != canvas.height()) {
         width = canvas.width();
         height = canvas.height();
-        const int count = std::max(40, canvas.width() / 2);
+        const int count = std::max(140, canvas.width() * 3);
         drops.resize(static_cast<std::size_t>(count));
         for (Drop& drop : drops) {
             reset_drop(drop, canvas);
@@ -65,7 +75,7 @@ void draw_rain(Canvas& canvas, double dt) {
         for (int i = 0; i < drop.length; ++i) {
             const int y = static_cast<int>(std::round(drop.y)) - i;
             const int color = i == 0 ? 97 : (i < 3 ? 92 : 32);
-            canvas.plot(static_cast<int>(drop.x), y, i == 0 ? '|' : '.', color);
+            canvas.plot(static_cast<int>(drop.x), y, random_ascii(), color);
         }
     }
 }
