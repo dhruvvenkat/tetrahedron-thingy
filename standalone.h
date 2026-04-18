@@ -10,8 +10,16 @@
 #include <string>
 #include <string_view>
 #include <thread>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <sys/ioctl.h>
 #include <unistd.h>
+#endif
 
 enum class AnimationClock {
     elapsed,
@@ -27,11 +35,30 @@ inline void handle_standalone_interrupt(int) {
 struct StandaloneTerminalGuard {
     StandaloneTerminalGuard() {
         std::cout << "\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H";
+#ifdef _WIN32
+        output_handle_ = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (output_handle_ != INVALID_HANDLE_VALUE && GetConsoleMode(output_handle_, &original_output_mode_)) {
+            output_mode_is_valid_ = true;
+            SetConsoleMode(output_handle_, original_output_mode_ | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        }
+#endif
     }
 
     ~StandaloneTerminalGuard() {
+#ifdef _WIN32
+        if (output_mode_is_valid_) {
+            SetConsoleMode(output_handle_, original_output_mode_);
+        }
+#endif
         std::cout << "\x1b[0m\x1b[?25h\x1b[?1049l" << std::flush;
     }
+
+private:
+#ifdef _WIN32
+    HANDLE output_handle_ = INVALID_HANDLE_VALUE;
+    DWORD original_output_mode_ = 0;
+    bool output_mode_is_valid_ = false;
+#endif
 };
 
 struct StandaloneOptions {
@@ -52,12 +79,22 @@ inline int parse_standalone_int(std::string_view value, int fallback) {
 inline StandaloneOptions detect_standalone_terminal_size() {
     StandaloneOptions options;
 
+#ifdef _WIN32
+    const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    if (output != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(output, &info)) {
+        options.width = static_cast<int>(info.srWindow.Right - info.srWindow.Left);
+        options.height = static_cast<int>(info.srWindow.Bottom - info.srWindow.Top);
+        return options;
+    }
+#else
     winsize window{};
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &window) == 0 && window.ws_col > 0 && window.ws_row > 0) {
         options.width = static_cast<int>(window.ws_col) - 1;
         options.height = static_cast<int>(window.ws_row) - 1;
         return options;
     }
+#endif
 
     const int columns = std::atoi(std::getenv("COLUMNS") == nullptr ? "" : std::getenv("COLUMNS"));
     const int lines = std::atoi(std::getenv("LINES") == nullptr ? "" : std::getenv("LINES"));

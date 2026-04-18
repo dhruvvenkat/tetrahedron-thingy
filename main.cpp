@@ -8,10 +8,19 @@
 #include <string_view>
 #include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <conio.h>
+#include <windows.h>
+#else
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
+#endif
 
 #include "animations.h"
 
@@ -30,6 +39,24 @@ void handle_interrupt(int) {
 struct TerminalGuard {
     TerminalGuard() {
         std::cout << "\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H";
+#ifdef _WIN32
+        input_handle_ = GetStdHandle(STD_INPUT_HANDLE);
+        output_handle_ = GetStdHandle(STD_OUTPUT_HANDLE);
+
+        if (output_handle_ != INVALID_HANDLE_VALUE && GetConsoleMode(output_handle_, &original_output_mode_)) {
+            output_mode_is_valid_ = true;
+            DWORD mode = original_output_mode_ | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(output_handle_, mode);
+        }
+
+        if (input_handle_ != INVALID_HANDLE_VALUE && GetConsoleMode(input_handle_, &original_input_mode_)) {
+            input_mode_is_valid_ = true;
+            DWORD mode = original_input_mode_;
+            mode &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
+            mode |= ENABLE_VIRTUAL_TERMINAL_INPUT;
+            SetConsoleMode(input_handle_, mode);
+        }
+#else
         if (isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &original_input_) == 0) {
             termios raw = original_input_;
             raw.c_lflag &= static_cast<unsigned int>(~(ICANON | ECHO));
@@ -37,18 +64,37 @@ struct TerminalGuard {
             raw.c_cc[VTIME] = 0;
             input_is_raw_ = tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0;
         }
+#endif
     }
 
     ~TerminalGuard() {
+#ifdef _WIN32
+        if (input_mode_is_valid_) {
+            SetConsoleMode(input_handle_, original_input_mode_);
+        }
+        if (output_mode_is_valid_) {
+            SetConsoleMode(output_handle_, original_output_mode_);
+        }
+#else
         if (input_is_raw_) {
             tcsetattr(STDIN_FILENO, TCSANOW, &original_input_);
         }
+#endif
         std::cout << "\x1b[0m\x1b[?25h\x1b[?1049l" << std::flush;
     }
 
 private:
+#ifdef _WIN32
+    HANDLE input_handle_ = INVALID_HANDLE_VALUE;
+    HANDLE output_handle_ = INVALID_HANDLE_VALUE;
+    DWORD original_input_mode_ = 0;
+    DWORD original_output_mode_ = 0;
+    bool input_mode_is_valid_ = false;
+    bool output_mode_is_valid_ = false;
+#else
     termios original_input_{};
     bool input_is_raw_ = false;
+#endif
 };
 
 struct Options {
@@ -166,6 +212,26 @@ InputEvents read_input_events() {
     InputEvents events;
     static std::string pending;
 
+#ifdef _WIN32
+    while (_kbhit() != 0) {
+        const int key = _getch();
+        if (key == 'q' || key == 'Q') {
+            events.quit = true;
+        } else if (key == 0 || key == 224) {
+            if (_kbhit() == 0) {
+                break;
+            }
+            const int scan = _getch();
+            if (scan == 72) {
+                ++events.up_presses;
+            } else if (scan == 80) {
+                ++events.down_presses;
+            }
+        } else {
+            pending.push_back(static_cast<char>(key));
+        }
+    }
+#else
     while (true) {
         fd_set read_set;
         FD_ZERO(&read_set);
@@ -184,6 +250,7 @@ InputEvents read_input_events() {
         }
         pending.append(buffer, static_cast<std::size_t>(read_count));
     }
+#endif
 
     while (!pending.empty()) {
         const char key = pending.front();
@@ -411,12 +478,22 @@ struct TerminalSize {
 TerminalSize detect_terminal_size() {
     TerminalSize size;
 
+#ifdef _WIN32
+    const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_SCREEN_BUFFER_INFO info{};
+    if (output != INVALID_HANDLE_VALUE && GetConsoleScreenBufferInfo(output, &info)) {
+        size.width = static_cast<int>(info.srWindow.Right - info.srWindow.Left);
+        size.height = static_cast<int>(info.srWindow.Bottom - info.srWindow.Top);
+        return size;
+    }
+#else
     winsize window{};
     if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &window) == 0 && window.ws_col > 0 && window.ws_row > 0) {
         size.width = static_cast<int>(window.ws_col) - 1;
         size.height = static_cast<int>(window.ws_row) - 1;
         return size;
     }
+#endif
 
     const int columns = std::atoi(std::getenv("COLUMNS") == nullptr ? "" : std::getenv("COLUMNS"));
     const int lines = std::atoi(std::getenv("LINES") == nullptr ? "" : std::getenv("LINES"));
