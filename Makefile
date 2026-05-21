@@ -1,6 +1,6 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++20 -O2 -Wall -Wextra -pedantic
-SOURCES := main.cpp orbits.cpp waves.cpp starfield.cpp rain.cpp
+SOURCES := main.cpp orbits.cpp torus.cpp waves.cpp starfield.cpp rain.cpp
 ANIMATION_HEADERS := animations.h canvas.h standalone.h
 
 .PHONY: all run clean
@@ -11,6 +11,9 @@ anim: $(SOURCES) $(ANIMATION_HEADERS)
 	$(CXX) $(CXXFLAGS) -DANIMATION_LIBRARY $(SOURCES) -o $@
 
 orbits: orbits.cpp $(ANIMATION_HEADERS)
+	$(CXX) $(CXXFLAGS) $< -o $@
+
+torus: torus.cpp $(ANIMATION_HEADERS)
 	$(CXX) $(CXXFLAGS) $< -o $@
 
 waves: waves.cpp $(ANIMATION_HEADERS)
@@ -26,4 +29,4 @@ run: anim
 	./anim
 
 clean:
-	rm -f anim orbits waves starfield rain
+	rm -f anim orbits torus waves starfield rain

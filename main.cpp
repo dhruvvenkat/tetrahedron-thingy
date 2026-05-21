@@ -57,7 +57,7 @@ struct Options {
     int fps = 60;
     int frames = 0;
     int initial_faces = 96;
-    std::string scene = "hedron";
+    std::string scene = "torus";
 };
 
 struct Point3 {
@@ -456,7 +456,7 @@ Options parse_args(int argc, char** argv) {
             options.initial_faces = parse_int(next(), options.initial_faces);
         } else if (arg == "--help" || arg == "-h") {
             std::cout
-                << "Usage: ./anim [--scene hedron|cube|cycle|orbits|waves|starfield|rain]\n"
+                << "Usage: ./anim [--scene hedron|cube|cycle|orbits|torus|waves|starfield|rain]\n"
                 << "              [--width auto] [--height auto] [--fps 60] [--faces 96] [--frames 0]\n"
                 << "\n"
                 << "In hedron mode, press Up Arrow to add one face and Down Arrow to remove one. Press q or Ctrl-C to quit.\n"
@@ -479,7 +479,7 @@ Options parse_args(int argc, char** argv) {
     options.frames = std::max(0, options.frames);
     options.initial_faces = std::clamp(options.initial_faces, min_hedron_faces, max_hedron_faces);
     if (options.scene.empty()) {
-        options.scene = "hedron";
+        options.scene = "torus";
     }
 
     return options;
@@ -490,7 +490,7 @@ std::string active_scene(const std::string& requested, int frame, int fps) {
         return requested;
     }
 
-    const int scene_index = (frame / (fps * 6)) % 5;
+    const int scene_index = (frame / (fps * 6)) % 6;
     if (scene_index == 0) {
         return "hedron";
     }
@@ -498,9 +498,12 @@ std::string active_scene(const std::string& requested, int frame, int fps) {
         return "orbits";
     }
     if (scene_index == 2) {
-        return "waves";
+        return "torus";
     }
     if (scene_index == 3) {
+        return "waves";
+    }
+    if (scene_index == 4) {
         return "starfield";
     }
     return "rain";
@@ -545,6 +548,8 @@ int main(int argc, char** argv) {
             state.draw_hedron(canvas, t);
         } else if (scene == "orbits") {
             draw_orbits(canvas, t);
+        } else if (scene == "torus") {
+            draw_torus(canvas, t);
         } else if (scene == "waves") {
             draw_waves(canvas, t);
         } else if (scene == "starfield") {
@@ -552,7 +557,7 @@ int main(int argc, char** argv) {
         } else if (scene == "rain") {
             draw_rain(canvas, dt);
         } else {
-            canvas.text(2, options.height / 2, "Unknown scene. Try --scene hedron|cube|cycle|orbits|waves|starfield|rain.", 31);
+            canvas.text(2, options.height / 2, "Unknown scene. Try --scene hedron|cube|cycle|orbits|torus|waves|starfield|rain.", 31);
         }
 
         if (scene != "hedron" && scene != "cube") {
